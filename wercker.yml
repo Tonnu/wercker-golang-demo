@@ -1,4 +1,19 @@
 box: golang:1.5.2
 dev: 
     steps:
-        - 
+        - script:
+            name: initialize workspace
+            code: |
+                export p="$GOPATH/src/github.com/wercker/wercker-golang-demo" \
+                && mkdir -p $(dirname "$p") \
+                && cp -a "$WERCKER_SOURCE_DIR" "$p" \
+                && cd "$p" \
+                && go get
+
+        - internal/shell:
+            code: |
+                rm -rf "$p" \
+                && cp -a "$WERCKER_SOURCE_DIR" "$p" \
+                && cd "$p" \
+                && go build -o sample \
+                && ./sample

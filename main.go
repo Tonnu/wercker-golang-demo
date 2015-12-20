@@ -54,9 +54,11 @@ func parseOptions(c *cli.Context) (*options, error) {
 func serve(o *options) error {
 	r := mux.NewRouter()
 
-	r.Methods("GET").Path("/todo").Handler(NewGetAllTodoHandler(o))
-	r.Methods("GET").Path("/todo/{todo:[0-9]+}").Handler(NewGetTodoHandler(o))
-	r.Methods("POST").Path("/todo").Handler(NewCreateTodoHandler(o))
+	f := &HandlerFactory{options: o}
+
+	r.Methods("GET").Path("/todo").Handler(f.NewGetAllTodoHandler())
+	r.Methods("GET").Path("/todo/{todo:[0-9]+}").Handler(f.NewGetTodoHandler())
+	r.Methods("POST").Path("/todo").Handler(f.NewCreateTodoHandler())
 
 	address := fmt.Sprintf(":%d", o.Port)
 	log.Println("Listening on", address)
@@ -70,10 +72,6 @@ func (h *createTodoHandler) ServeHTTP(http.ResponseWriter, *http.Request) {
 	log.Println("got request on createTodoHandler")
 }
 
-func NewCreateTodoHandler(o *options) *createTodoHandler {
-	return &createTodoHandler{}
-}
-
 type getTodoHandler struct{}
 
 func (h *getTodoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -82,16 +80,24 @@ func (h *getTodoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Println("got request on getTodoHandler", vars["todo"])
 }
 
-func NewGetTodoHandler(o *options) *getTodoHandler {
-	return &getTodoHandler{}
-}
-
 type getAllTodoHandler struct{}
 
 func (h *getAllTodoHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Println("got request on getAllTodoHandler")
 }
 
-func NewGetAllTodoHandler(o *options) *getAllTodoHandler {
+type HandlerFactory struct {
+	options *options
+}
+
+func (h *HandlerFactory) NewGetAllTodoHandler() *getAllTodoHandler {
 	return &getAllTodoHandler{}
+}
+
+func (h *HandlerFactory) NewGetTodoHandler() *getTodoHandler {
+	return &getTodoHandler{}
+}
+
+func (h *HandlerFactory) NewCreateTodoHandler() *createTodoHandler {
+	return &createTodoHandler{}
 }
