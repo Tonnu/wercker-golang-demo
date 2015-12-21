@@ -1,4 +1,6 @@
 box: golang:1.5.2
+services:
+  - mongo
 dev: 
     steps:
         - script:
@@ -11,9 +13,34 @@ dev:
                 && go get
 
         - internal/shell:
+            name:
             code: |
                 rm -rf "$p" \
                 && cp -a "$WERCKER_SOURCE_DIR" "$p" \
                 && cd "$p" \
                 && go build -o sample \
                 && ./sample
+build:
+    steps:
+        - script:
+            name: initialize workspace
+            code: |
+                export p="$GOPATH/src/github.com/wercker/wercker-golang-demo" \
+                && mkdir -p $(dirname "$p") \
+                && cp -a "$WERCKER_SOURCE_DIR" "$p" \
+                && cd "$p" \
+                && go get
+
+        - script:
+            name: go build
+            code: |
+                rm -rf "$p" \
+                && cp -a "$WERCKER_SOURCE_DIR" "$p" \
+                && cd "$p" \
+                && go build -o sample
+        - internal/docker-push:
+            username: $DOCKER_USERNAME
+            password: $DOCKER_PASSWORD
+            repository: wercker/golang-api
+            cmd: /go/bin/wercker-golang-demo
+            ports: 5000
