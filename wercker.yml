@@ -30,7 +30,7 @@ build:
                 && cp -a "$WERCKER_SOURCE_DIR" "$p" \
                 && cd "$p" \
                 && go get
-
+        - golint
         - script:
             name: go build
             code: |
