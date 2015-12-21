@@ -8,11 +8,10 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
-	"sync/atomic"
 
 	"github.com/codegangsta/cli"
 	"github.com/gorilla/mux"
+	"gopkg.in/mgo.v2"
 )
 
 func main() {
@@ -24,7 +23,12 @@ func main() {
 			Name:  "port",
 			Value: 5000,
 		},
+		cli.StringFlag{
+			Name:  "mongo",
+			Value: "",
+		},
 	}
+
 	app.Action = func(c *cli.Context) {
 		o, err := parseOptions(c)
 		if err != nil {
@@ -33,7 +37,7 @@ func main() {
 
 		err = serve(o)
 		if err != nil {
-			log.Fatalln("Unable to parse options", err)
+			log.Fatalln("Unable to serve", err)
 		}
 	}
 
@@ -41,7 +45,8 @@ func main() {
 }
 
 type options struct {
-	Port int
+	Port       int
+	MongoDBURI string
 }
 
 func parseOptions(c *cli.Context) (*options, error) {
@@ -50,27 +55,58 @@ func parseOptions(c *cli.Context) (*options, error) {
 		return nil, errors.New("Invalid port number")
 	}
 
+	mongo := c.String("mongo")
+
 	return &options{
-		Port: port,
+		Port:       port,
+		MongoDBURI: mongo,
 	}, nil
 }
 
 func serve(o *options) error {
 	r := mux.NewRouter()
 
-	f := &HandlerFactory{options: o, store: NewMemoryTodoStore()}
+	store, err := createStore(o)
+	if err != nil {
+		return err
+	}
+
+	f := &HandlerFactory{options: o, store: store}
 
 	r.Methods("GET").Path("/todo").Handler(f.NewGetAllTodoHandler())
 
 	r.Methods("POST").Path("/todo").Handler(f.NewCreateTodoHandler())
-	r.Methods("GET").Path("/todo/{todo:[0-9]+}").Handler(f.NewGetTodoHandler())
-	r.Methods("PUT").Path("/todo/{todo:[0-9]+}").Handler(f.NewUpdateTodoHandler())
-	r.Methods("DELETE").Path("/todo/{todo:[0-9]+}").Handler(f.NewDeleteTodoHandler())
+	r.Methods("GET").Path("/todo/{todo:[0-9a-f]+}").Handler(f.NewGetTodoHandler())
+	r.Methods("PUT").Path("/todo/{todo:[0-9a-f]+}").Handler(f.NewUpdateTodoHandler())
+	r.Methods("DELETE").Path("/todo/{todo:[0-9a-f]+}").Handler(f.NewDeleteTodoHandler())
 
 	address := fmt.Sprintf(":%d", o.Port)
 	log.Println("Listening on", address)
 
 	return http.ListenAndServe(address, r)
+}
+
+func createStore(o *options) (TodoStore, error) {
+	var store TodoStore
+	if o.MongoDBURI != "" {
+		log.Println("Using Mongo Store")
+		session, err := mgo.Dial(o.MongoDBURI)
+		if err != nil {
+			return nil, err
+		}
+
+		mongoSvc, err := NewMongoTodoStore(session.DB(""))
+		if err != nil {
+			return nil, err
+		}
+
+		store = mongoSvc
+	} else {
+		log.Println("Using Memory Store")
+		store = NewMemoryTodoStore()
+	}
+
+	return store, nil
 }
 
 type createTodoHandler struct {
@@ -259,7 +295,7 @@ func (h *HandlerFactory) NewGetAllTodoHandler() *getAllTodoHandler {
 type Todo struct {
 	ID     string `json:"id,omitempty"`
 	Title  string `json:"title,omitempty"`
-	Status bool   `json:"status,omitempty"`
+	Status string `json:"status,omitempty"`
 }
 
 type TodoStore interface {
@@ -269,64 +305,4 @@ type TodoStore interface {
 	Delete(id string) error
 
 	GetAll() ([]*Todo, error)
-}
-
-func NewMemoryTodoStore() *MemoryTodoStore {
-	counter := int32(0)
-	return &MemoryTodoStore{
-		counter: &counter,
-		s:       make(map[string]*Todo),
-	}
-}
-
-type MemoryTodoStore struct {
-	s map[string]*Todo
-
-	counter *int32
-}
-
-func (s *MemoryTodoStore) createID() string {
-	id := atomic.AddInt32(s.counter, 1)
-
-	return strconv.Itoa(int(id))
-}
-
-func (s *MemoryTodoStore) Create(t *Todo) (id string, err error) {
-	id = s.createID()
-	t.ID = id
-
-	s.s[id] = t
-
-	return id, nil
-}
-
-func (s *MemoryTodoStore) Get(id string) (*Todo, error) {
-	if t, exists := s.s[id]; exists {
-		return t, nil
-	}
-
-	return nil, nil
-}
-
-func (s *MemoryTodoStore) Update(t *Todo) error {
-	if _, exists := s.s[t.ID]; exists {
-		s.s[t.ID] = t
-		return nil
-	}
-
-	return errors.New("TODO not found")
-}
-
-func (s *MemoryTodoStore) Delete(id string) error {
-	delete(s.s, id)
-
-	return nil
-}
-
-func (s *MemoryTodoStore) GetAll() ([]*Todo, error) {
-	buf := []*Todo{}
-	for _, todo := range s.s {
-		buf = append(buf, todo)
-	}
-	return buf, nil
 }
